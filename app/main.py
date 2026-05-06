@@ -72,7 +72,7 @@ async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
     if not ACESTREAM_BASE:
-        await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida en el servidor.")
+        await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
         return
     try:
         name, ace_id = context.args[0], context.args[1]
@@ -82,7 +82,7 @@ async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if link: link.target_url = full_url
             else: db.add(Redirect(name=name, target_url=full_url))
             db.commit()
-        await update.message.reply_text(f"⚽ **AceStream guardado:**\n`{name}` -> `{ace_id}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📺 **AceStream guardado:**\n`{name}` -> `{ace_id}`", parse_mode='Markdown')
     except:
         await update.message.reply_text("❌ Error. Uso: `/setace nombre id_acestream`")
 
@@ -104,15 +104,27 @@ async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     if query.data == 'list':
         with SessionLocal() as db:
             links = db.query(Redirect).all()
-            text = "\n".join([f"🔹 `{l.name}`" for l in links]) if links else "No hay rutas."
-            await query.edit_message_text(text=f"🛰 **Rutas actuales:**\n{text}", parse_mode='Markdown')
+            if links:
+                # Aquí la modificación: Mostramos nombre y URL (usando monoespaciado para que quede limpio)
+                text = "🛰 **Rutas actuales:**\n\n"
+                text += "\n".join([f"🔹 `{l.name}` ➔ {l.target_url}" for l in links])
+            else:
+                text = "No hay rutas configuradas."
+            
+            await query.edit_message_text(text=text, parse_mode='Markdown', disable_web_page_preview=True)
 
 # --- CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not TOKEN:
+        logger.error("TELEGRAM_TOKEN no configurado.")
+        yield
+        return
+
     application = ApplicationBuilder().token(TOKEN).build()
     
     # Handlers
@@ -122,7 +134,7 @@ async def lifespan(app: FastAPI):
     application.add_handler(CommandHandler("del", del_cmd))
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # Registro automático de comandos en el menú de Telegram
+    # Registro automático de comandos
     await application.initialize()
     await application.bot.set_my_commands([
         BotCommand("start", "Menú principal"),
@@ -133,7 +145,7 @@ async def lifespan(app: FastAPI):
     
     await application.start()
     await application.updater.start_polling()
-    logger.info("Bot y comandos registrados.")
+    logger.info("Bot y comandos registrados correctamente.")
     
     yield
     
