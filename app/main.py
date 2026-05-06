@@ -9,16 +9,17 @@ from sqlalchemy import Column, String, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
 # --- CONFIGURACIÓN ---
-LOG_LEVEL = os.getenv("LOG_LEVEL", "WARNING").upper()
-logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.WARNING))
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("httpredirect")
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 ALLOWED_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
+ACESTREAM_BASE = os.getenv("URL_BASE_ACESTREAM", "")
 DATABASE_URL = "sqlite:///./data/redirects.db"
 
 os.makedirs("./data", exist_ok=True)
@@ -45,9 +46,15 @@ def get_db():
 # --- HANDLERS DEL BOT ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
-    keyboard = [[InlineKeyboardButton("📋 Listar", callback_data='list')]]
-    await update.message.reply_text("🚀 **Redirect Bot listo.**\n`/set nombre url`", 
-                                   reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("📋 Listar enlaces", callback_data='list')]]
+    msg = (
+        "🚀 **Redirect Bot Activo**\n\n"
+        "**Comandos:**\n"
+        "🔹 `/set <nombre> <url>` -> Redirección normal\n"
+        "🔹 `/setace <nombre> <id>` -> Redirección AceStream\n"
+        "🔹 `/del <nombre>` -> Eliminar ruta"
+    )
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
@@ -58,9 +65,41 @@ async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if link: link.target_url = url
             else: db.add(Redirect(name=name, target_url=url))
             db.commit()
-        await update.message.reply_text(f"✅ `{name}` -> `{url}`")
+        await update.message.reply_text(f"✅ Guardado: `{name}` -> `{url}`", parse_mode='Markdown')
     except:
-        await update.message.reply_text("❌ Usa: `/set nombre url`")
+        await update.message.reply_text("❌ Error. Uso: `/set nombre url`")
+
+async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_ID: return
+    if not ACESTREAM_BASE:
+        await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida en el servidor.")
+        return
+    try:
+        name, ace_id = context.args[0], context.args[1]
+        full_url = f"{ACESTREAM_BASE}{ace_id}"
+        with SessionLocal() as db:
+            link = db.query(Redirect).filter(Redirect.name == name).first()
+            if link: link.target_url = full_url
+            else: db.add(Redirect(name=name, target_url=full_url))
+            db.commit()
+        await update.message.reply_text(f"⚽ **AceStream guardado:**\n`{name}` -> `{ace_id}`", parse_mode='Markdown')
+    except:
+        await update.message.reply_text("❌ Error. Uso: `/setace nombre id_acestream`")
+
+async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_ID: return
+    try:
+        name = context.args[0]
+        with SessionLocal() as db:
+            link = db.query(Redirect).filter(Redirect.name == name).first()
+            if link:
+                db.delete(link)
+                db.commit()
+                await update.message.reply_text(f"🗑 `{name}` eliminado.")
+            else:
+                await update.message.reply_text(f"❓ No encontré `{name}`.")
+    except:
+        await update.message.reply_text("❌ Uso: `/del nombre`")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -68,28 +107,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == 'list':
         with SessionLocal() as db:
             links = db.query(Redirect).all()
-            text = "\n".join([f"🔹 `{l.name}` -> {l.target_url}" for l in links]) if links else "Vacío."
-            await query.edit_message_text(text=f"🛰 **Enlaces:**\n{text}", parse_mode='Markdown')
+            text = "\n".join([f"🔹 `{l.name}`" for l in links]) if links else "No hay rutas."
+            await query.edit_message_text(text=f"🛰 **Rutas actuales:**\n{text}", parse_mode='Markdown')
 
-# --- CICLO DE VIDA (LIFESPAN) ---
+# --- CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Configuración inicial del Bot
     application = ApplicationBuilder().token(TOKEN).build()
+    
+    # Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("set", set_cmd))
+    application.add_handler(CommandHandler("setace", set_acestream))
+    application.add_handler(CommandHandler("del", del_cmd))
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # Arrancamos el bot correctamente
+    # Registro automático de comandos en el menú de Telegram
     await application.initialize()
+    await application.bot.set_my_commands([
+        BotCommand("start", "Menú principal"),
+        BotCommand("set", "Redirección normal: /set nombre url"),
+        BotCommand("setace", "AceStream: /setace nombre id"),
+        BotCommand("del", "Borrar ruta: /del nombre")
+    ])
+    
     await application.start()
     await application.updater.start_polling()
+    logger.info("Bot y comandos registrados.")
     
-    logger.info("Bot de Telegram iniciado.")
+    yield
     
-    yield  # Aquí es donde corre FastAPI
-    
-    # Al cerrar la app, apagamos el bot limpiamente
     await application.updater.stop()
     await application.stop()
     await application.shutdown()
