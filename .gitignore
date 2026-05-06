@@ -1,0 +1,24 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Python (archivos compilados)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Base de datos local (para que no subas tus pruebas a GitHub)
+app/data/*.db
+data/
+
+# Variables de entorno (por si creas un archivo .env local)
+*.env
+
+# Docker logs (si se generan localmente)
+*.log
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
