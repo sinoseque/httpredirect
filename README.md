@@ -59,6 +59,7 @@ Al iniciar el bot en Telegram, dispondrás de los siguientes comandos:
 *   `/setace <nombre> <id>`: Crea una redirección concatenando el ID al servidor AceStream configurado.
     *   *Ejemplo:* `/setace canal1 1a2b3c4d5e6f7g8h9i0j`
 *   `/del <nombre>`: Elimina una ruta de la base de datos.
+*   `/clear`: Elimina **todas** las rutas de la base de datos (pide confirmación).
 
 ---
 

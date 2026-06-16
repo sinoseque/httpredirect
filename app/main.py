@@ -52,7 +52,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**Comandos:**\n"
         "🔹 `/set <nombre> <url>` -> Redirección normal\n"
         "🔹 `/setace <nombre> <id>` -> Redirección AceStream\n"
-        "🔹 `/del <nombre>` -> Eliminar ruta"
+        "🔹 `/del <nombre>` -> Eliminar ruta\n"
+        "🔹 `/clear` -> Eliminar **todas** las rutas"
     )
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -101,6 +102,20 @@ async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Uso: `/del nombre`")
 
+async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_ID: return
+    with SessionLocal() as db:
+        count = db.query(Redirect).count()
+        if count == 0:
+            await update.message.reply_text("📭 No hay rutas configuradas para borrar.")
+            return
+    keyboard = [[InlineKeyboardButton("✅ Sí, borrar todo", callback_data="clear_confirm")]]
+    await update.message.reply_text(
+        f"⚠️ ¿Estás seguro de que quieres borrar **todas** las rutas ({count} en total)?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -117,6 +132,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.edit_message_text(text=text, parse_mode='Markdown', disable_web_page_preview=True)
 
+    elif query.data == 'clear_confirm':
+        with SessionLocal() as db:
+            count = db.query(Redirect).delete()
+            db.commit()
+        await query.edit_message_text(f"🗑 Se eliminaron {count} redireccionamientos.")
+
 # --- CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -132,6 +153,7 @@ async def lifespan(app: FastAPI):
     application.add_handler(CommandHandler("set", set_cmd))
     application.add_handler(CommandHandler("setace", set_acestream))
     application.add_handler(CommandHandler("del", del_cmd))
+    application.add_handler(CommandHandler("clear", clear_cmd))
     application.add_handler(CallbackQueryHandler(button_handler))
 
     # Registro automático de comandos
@@ -140,7 +162,8 @@ async def lifespan(app: FastAPI):
         BotCommand("start", "Menú principal"),
         BotCommand("set", "Redirección normal: /set nombre url"),
         BotCommand("setace", "AceStream: /setace nombre id"),
-        BotCommand("del", "Borrar ruta: /del nombre")
+        BotCommand("del", "Borrar ruta: /del nombre"),
+        BotCommand("clear", "Borrar todas las rutas")
     ])
     
     await application.start()
