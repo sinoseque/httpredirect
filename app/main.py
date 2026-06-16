@@ -52,47 +52,64 @@ def get_db():
 
 def normalize_name(title):
     name = title.lower()
+    name = name.replace('*', 'o').replace('&', 'y').replace('@', 'a').replace('#', 'h')
     name = re.sub(r'[^a-z0-9\- ]', '', name)
     name = name.strip().replace(' ', '-')
     name = re.sub(r'-+', '-', name)
     return name
 
+def _resolve_duplicates(items):
+    seen = {}
+    resolved = []
+    for name, target_url in items:
+        if name in seen:
+            seen[name] += 1
+            resolved.append((f"{name}-{seen[name]}", target_url))
+        else:
+            seen[name] = 0
+            resolved.append((name, target_url))
+    return resolved
+
 def import_from_json_hashes(data):
-    count = 0
+    items = []
+    for item in data.get("hashes", []):
+        title = item.get("title", "")
+        hash_id = item.get("hash", "")
+        if not title or not hash_id:
+            continue
+        name = normalize_name(title)
+        items.append((name, f"{ACESTREAM_BASE}{hash_id}"))
+    items = _resolve_duplicates(items)
+
     with SessionLocal() as db:
-        for item in data.get("hashes", []):
-            title = item.get("title", "")
-            hash_id = item.get("hash", "")
-            if not title or not hash_id:
-                continue
-            name = normalize_name(title)
-            target_url = f"{ACESTREAM_BASE}{hash_id}"
+        for name, target_url in items:
             link = db.query(Redirect).filter(Redirect.name == name).first()
             if link:
                 link.target_url = target_url
             else:
                 db.add(Redirect(name=name, target_url=target_url))
-            count += 1
         db.commit()
-    return count
+    return len(items)
 
 def import_from_json_simple(data):
-    count = 0
+    items = []
+    for item in data:
+        name = item.get("name", "")
+        ace_id = item.get("ace_id", "")
+        if not name or not ace_id:
+            continue
+        items.append((name, f"{ACESTREAM_BASE}{ace_id}"))
+    items = _resolve_duplicates(items)
+
     with SessionLocal() as db:
-        for item in data:
-            name = item.get("name", "")
-            ace_id = item.get("ace_id", "")
-            if not name or not ace_id:
-                continue
-            target_url = f"{ACESTREAM_BASE}{ace_id}"
+        for name, target_url in items:
             link = db.query(Redirect).filter(Redirect.name == name).first()
             if link:
                 link.target_url = target_url
             else:
                 db.add(Redirect(name=name, target_url=target_url))
-            count += 1
         db.commit()
-    return count
+    return len(items)
 
 # --- HANDLERS DEL BOT ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
