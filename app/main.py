@@ -198,7 +198,7 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if mode == 'url':
             async with httpx.AsyncClient() as client:
-                resp = await client.get(update.message.text, timeout=30)
+                resp = await client.get(update.message.text, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
                 logger.debug("GET %s -> status %d", update.message.text, resp.status_code)
                 logger.debug("Respuesta: %s", resp.text[:500])
                 resp.raise_for_status()
@@ -241,13 +241,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⏳ Descargando lista desde URL...")
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(CHANNEL_LIST_URL, timeout=30)
+                resp = await client.get(CHANNEL_LIST_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
                 logger.debug("GET %s -> status %d", CHANNEL_LIST_URL, resp.status_code)
                 logger.debug("Respuesta: %s", resp.text[:500])
                 resp.raise_for_status()
                 data = resp.json()
                 count = import_from_json_hashes(data)
             await query.edit_message_text(f"✅ Importación completada: **{count}** rutas añadidas/actualizadas.", parse_mode='Markdown')
+        except httpx.HTTPStatusError as e:
+            logger.exception("Error HTTP %s en URL configurada", e.response.status_code)
+            await query.edit_message_text(f"❌ Error HTTP {e.response.status_code} al descargar desde la URL configurada.")
         except Exception as e:
             logger.exception("Error importando desde URL configurada: %s", e)
             await query.edit_message_text(f"❌ Error al descargar o procesar: {e}")
