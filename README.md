@@ -45,6 +45,7 @@ services:
 | `TELEGRAM_TOKEN` | Token obtenido a través de [@BotFather](https://t.me/botfather). |
 | `ALLOWED_USER_ID` | Tu ID de usuario de Telegram para restringir el acceso. |
 | `URL_BASE_ACESTREAM` | URL base de tu motor AceStream (debe terminar en `id=`). |
+| `CHANNEL_LIST_URL` | URL pública de un JSON con lista de canales para importar con `/addlist`. |
 | `PORT` | Puerto interno en el que escucha la aplicación (default 8000). |
 
 ---
@@ -60,6 +61,7 @@ Al iniciar el bot en Telegram, dispondrás de los siguientes comandos:
     *   *Ejemplo:* `/setace canal1 1a2b3c4d5e6f7g8h9i0j`
 *   `/del <nombre>`: Elimina una ruta de la base de datos.
 *   `/clear`: Elimina **todas** las rutas de la base de datos (pide confirmación).
+*   `/addlist`: Importa una lista de canales desde JSON (URL configurada, URL personalizada o pegado manual).
 
 ---
 
