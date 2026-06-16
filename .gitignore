@@ -19,6 +19,9 @@ data/
 # Docker logs (si se generan localmente)
 *.log
 
+# Decisiones de desarrollo
+DECISIONES.md
+
 # Archivos de sistema
 .DS_Store
 Thumbs.db

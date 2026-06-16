@@ -46,6 +46,7 @@ services:
 | `ALLOWED_USER_ID` | Tu ID de usuario de Telegram para restringir el acceso. |
 | `URL_BASE_ACESTREAM` | URL base de tu motor AceStream (debe terminar en `id=`). |
 | `CHANNEL_LIST_URL` | URL pública de un JSON con lista de canales para importar con `/addlist`. |
+| `LOG_LEVEL` | Nivel de logging: `DEBUG`, `INFO` (default), `WARNING`, `ERROR`. |
 | `PORT` | Puerto interno en el que escucha la aplicación (default 8000). |
 
 ---

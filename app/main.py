@@ -119,7 +119,8 @@ async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else: db.add(Redirect(name=name, target_url=url))
             db.commit()
         await update.message.reply_text(f"✅ Guardado: `{name}` -> `{url}`", parse_mode='Markdown')
-    except:
+    except Exception as e:
+        logger.exception("Error en /set: %s", e)
         await update.message.reply_text("❌ Error. Uso: `/set nombre url`")
 
 async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -136,7 +137,8 @@ async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else: db.add(Redirect(name=name, target_url=full_url))
             db.commit()
         await update.message.reply_text(f"📺 **AceStream guardado:**\n`{name}` -> `{ace_id}`", parse_mode='Markdown')
-    except:
+    except Exception as e:
+        logger.exception("Error en /setace: %s", e)
         await update.message.reply_text("❌ Error. Uso: `/setace nombre id_acestream`")
 
 async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,7 +153,8 @@ async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"🗑 `{name}` eliminado.")
             else:
                 await update.message.reply_text(f"❓ No encontré `{name}`.")
-    except:
+    except Exception as e:
+        logger.exception("Error en /del: %s", e)
         await update.message.reply_text("❌ Uso: `/del nombre`")
 
 async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,6 +199,8 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if mode == 'url':
             async with httpx.AsyncClient() as client:
                 resp = await client.get(update.message.text, timeout=30)
+                logger.debug("GET %s -> status %d", update.message.text, resp.status_code)
+                logger.debug("Respuesta: %s", resp.text[:500])
                 resp.raise_for_status()
                 data = resp.json()
             count = import_from_json_hashes(data)
@@ -207,6 +212,7 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             count = import_from_json_hashes(data)
         await update.message.reply_text(f"✅ Importación completada: **{count}** rutas añadidas/actualizadas.", parse_mode='Markdown')
     except Exception as e:
+        logger.exception("Error al procesar entrada JSON: %s", e)
         await update.message.reply_text(f"❌ Error al procesar los datos: {e}")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -236,11 +242,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(CHANNEL_LIST_URL, timeout=30)
+                logger.debug("GET %s -> status %d", CHANNEL_LIST_URL, resp.status_code)
+                logger.debug("Respuesta: %s", resp.text[:500])
                 resp.raise_for_status()
                 data = resp.json()
                 count = import_from_json_hashes(data)
             await query.edit_message_text(f"✅ Importación completada: **{count}** rutas añadidas/actualizadas.", parse_mode='Markdown')
         except Exception as e:
+            logger.exception("Error importando desde URL configurada: %s", e)
             await query.edit_message_text(f"❌ Error al descargar o procesar: {e}")
 
     elif query.data == 'addlist_paste_url':
