@@ -47,7 +47,6 @@ services:
 | `URL_BASE_ACESTREAM` | URL base de tu motor AceStream (debe terminar en `id=`). |
 | `CHANNEL_LIST_URL` | URL pública de un JSON con lista de canales para importar con `/addlist`. |
 | `REDIRECT_NAME` | Nombre de la ruta fija para usar con `/reredirect` (ej: `f`). |
-| `SCRAPE_URL` | URL de una página web con array `links` para importar con `/scrape`. |
 | `LOG_LEVEL` | Nivel de logging: `DEBUG`, `INFO` (default), `WARNING`, `ERROR`. |
 | `PORT` | Puerto interno en el que escucha la aplicación (default 8000). |
 
@@ -79,14 +78,6 @@ Al iniciar el bot en Telegram, dispondrás de los siguientes comandos:
        - Resultado: `/r/f` ➔ `/r/canal1` ➔ `http://URL_real`.
 
     Si el canal al que apunta `f` se borra, al acceder a `/r/f` recibirás un aviso.
-
-*   `/scrape`: Scrapea canales desde una página web que contenga un array `links` con objetos `name`, `url` y opcionalmente `group`.
-
-    **Flujo:**
-    1. Define `SCRAPE_URL` en las variables de entorno (opcional).
-    2. En Telegram ejecutas `/scrape`.
-    3. Elige entre "Desde URL configurada" o "Pegar URL".
-    4. El bot descarga la página, extrae el array `links` del HTML e importa los canales.
 
 ---
 
