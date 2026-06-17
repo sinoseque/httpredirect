@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0] - 2026-06-17
+
+### Changed
+- Refactor: `main.py` dividido en 3 módulos (`config.py`, `database.py`, `main.py`) para mejor mantenimiento
+- Extraída función `_upsert_redirects()` para eliminar código duplicado en las importaciones
+
+### Added
+- `app/__init__.py` para que `app/` funcione como paquete Python
+
+### Internal
+- Sin cambios de comportamiento ni nuevas funcionalidades
+
 ## [1.2.0] - 2026-06-17
 
 ### Added
