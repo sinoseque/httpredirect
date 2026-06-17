@@ -26,6 +26,7 @@ ALLOWED_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 ACESTREAM_BASE = os.getenv("URL_BASE_ACESTREAM", "")
 CHANNEL_LIST_URL = os.getenv("CHANNEL_LIST_URL", "")
 REDIRECT_NAME = os.getenv("REDIRECT_NAME", "")
+SCRAPE_URL = os.getenv("SCRAPE_URL", "")
 DATABASE_URL = "sqlite:///./data/redirects.db"
 
 os.makedirs("./data", exist_ok=True)
@@ -112,6 +113,28 @@ def import_from_json_simple(data):
         db.commit()
     return len(items)
 
+def import_from_links(data):
+    items = []
+    for item in data:
+        name = item.get("name", "")
+        url = item.get("url", "")
+        if not name or not url:
+            continue
+        hash_id = url.replace("acestream://", "").split("?")[0]
+        name = normalize_name(name)
+        items.append((name, f"{ACESTREAM_BASE}{hash_id}"))
+    items = _resolve_duplicates(items)
+
+    with SessionLocal() as db:
+        for name, target_url in items:
+            link = db.query(Redirect).filter(Redirect.name == name).first()
+            if link:
+                link.target_url = target_url
+            else:
+                db.add(Redirect(name=name, target_url=target_url))
+        db.commit()
+    return len(items)
+
 # --- HANDLERS DEL BOT ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
@@ -124,7 +147,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 `/del <nombre>` -> Eliminar ruta\n"
         "🔹 `/clear` -> Eliminar **todas** las rutas\n"
         "🔹 `/addlist` -> Importar lista de canales\n"
-        "🔹 `/reredirect` -> Apuntar `REDIRECT_NAME` a otro canal"
+        "🔹 `/reredirect` -> Apuntar `REDIRECT_NAME` a otro canal\n"
+        "🔹 `/scrape` -> Scrapear canales desde web"
     )
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -226,6 +250,16 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif mode == 'simple':
             data = json.loads(update.message.text)
             count = import_from_json_simple(data)
+        elif mode == 'scrape':
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(update.message.text, timeout=30, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
+                logger.debug("GET %s -> status %d", update.message.text, resp.status_code)
+                resp.raise_for_status()
+                match = re.search(r'const links\s*=\s*(\[[\s\S]*?\]);', resp.text)
+                if not match:
+                    raise ValueError("No se encontró el array `links` en la página.")
+                data = json.loads(match.group(1))
+            count = import_from_links(data)
         else:
             data = json.loads(update.message.text)
             count = import_from_json_hashes(data)
@@ -262,6 +296,23 @@ async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎯 **Selecciona la ruta a la que quieres que apunte `{REDIRECT_NAME}`:**",
         reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def scrape_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_ID: return
+    if not ACESTREAM_BASE:
+        await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
+        return
+
+    buttons = []
+    if SCRAPE_URL:
+        buttons.append([InlineKeyboardButton("📡 Desde URL configurada", callback_data="scrape_url")])
+    buttons.append([InlineKeyboardButton("🔗 Pegar URL", callback_data="scrape_paste_url")])
+
+    await update.message.reply_text(
+        "🌐 **Scrapear canales desde web**\n\n¿De dónde quieres cargar los datos?",
+        reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode='Markdown'
     )
 
@@ -348,6 +399,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             disable_web_page_preview=True
         )
 
+    elif query.data == 'scrape_url':
+        await query.edit_message_text("⏳ Descargando y scrapeando desde URL configurada...")
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(SCRAPE_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
+                logger.debug("GET %s -> status %d", SCRAPE_URL, resp.status_code)
+                resp.raise_for_status()
+                match = re.search(r'const links\s*=\s*(\[[\s\S]*?\]);', resp.text)
+                if not match:
+                    raise ValueError("No se encontró el array `links` en la página.")
+                data = json.loads(match.group(1))
+                count = import_from_links(data)
+            await query.edit_message_text(f"✅ Scraping completado: **{count}** rutas añadidas/actualizadas.", parse_mode='Markdown')
+        except httpx.HTTPStatusError as e:
+            logger.exception("Error HTTP %s en URL configurada", e.response.status_code)
+            await query.edit_message_text(f"❌ Error HTTP {e.response.status_code} al descargar desde la URL configurada.")
+        except Exception as e:
+            logger.exception("Error scrapeando desde URL configurada: %s", e)
+            await query.edit_message_text(f"❌ Error al scrapear: {e}")
+
+    elif query.data == 'scrape_paste_url':
+        context.user_data['awaiting'] = 'scrape'
+        await query.edit_message_text(
+            "🔗 **Pega la URL** de la página web que quieras scrapear.\n\n"
+            "La página debe tener un array `links` con objetos `name`, `url` y opcionalmente `group`.",
+            parse_mode='Markdown'
+        )
+
 # --- CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -366,6 +445,7 @@ async def lifespan(app: FastAPI):
     application.add_handler(CommandHandler("clear", clear_cmd))
     application.add_handler(CommandHandler("addlist", addlist_cmd))
     application.add_handler(CommandHandler("reredirect", reredirect_cmd))
+    application.add_handler(CommandHandler("scrape", scrape_cmd))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_json_input))
     application.add_handler(CallbackQueryHandler(button_handler))
 
@@ -378,7 +458,8 @@ async def lifespan(app: FastAPI):
         BotCommand("del", "Borrar ruta: /del nombre"),
         BotCommand("clear", "Borrar todas las rutas"),
         BotCommand("addlist", "Importar lista de canales"),
-        BotCommand("reredirect", "Apuntar ruta fija a otro canal")
+        BotCommand("reredirect", "Apuntar ruta fija a otro canal"),
+        BotCommand("scrape", "Scrapear canales desde web")
     ])
     
     await application.start()
