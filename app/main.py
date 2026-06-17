@@ -1,53 +1,19 @@
-import os
 import json
 import re
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 
 import httpx
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import RedirectResponse, PlainTextResponse
-from sqlalchemy import Column, String, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# --- CONFIGURACIÓN ---
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
-logger = logging.getLogger("httpredirect")
-
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-ALLOWED_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-ACESTREAM_BASE = os.getenv("URL_BASE_ACESTREAM", "")
-CHANNEL_LIST_URL = os.getenv("CHANNEL_LIST_URL", "")
-REDIRECT_NAME = os.getenv("REDIRECT_NAME", "")
-DATABASE_URL = "sqlite:///./data/redirects.db"
-
-os.makedirs("./data", exist_ok=True)
-
-# --- BASE DE DATOS ---
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-class Redirect(Base):
-    __tablename__ = "redirects"
-    name = Column(String, primary_key=True, index=True)
-    target_url = Column(String)
-
-Base.metadata.create_all(bind=engine)
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+from .config import TOKEN, ALLOWED_ID, ACESTREAM_BASE, CHANNEL_LIST_URL, REDIRECT_NAME, logger
+from .database import SessionLocal, Redirect, get_db
 
 # --- HELPERS ---
 
@@ -58,6 +24,7 @@ def normalize_name(title):
     name = name.strip().replace(' ', '-')
     name = re.sub(r'-+', '-', name)
     return name
+
 
 def _resolve_duplicates(items):
     seen = {}
@@ -71,6 +38,19 @@ def _resolve_duplicates(items):
             resolved.append((name, target_url))
     return resolved
 
+
+def _upsert_redirects(items):
+    with SessionLocal() as db:
+        for name, target_url in items:
+            link = db.query(Redirect).filter(Redirect.name == name).first()
+            if link:
+                link.target_url = target_url
+            else:
+                db.add(Redirect(name=name, target_url=target_url))
+        db.commit()
+    return len(items)
+
+
 def import_from_json_hashes(data):
     items = []
     for item in data.get("hashes", []):
@@ -81,16 +61,8 @@ def import_from_json_hashes(data):
         name = normalize_name(title)
         items.append((name, f"{ACESTREAM_BASE}{hash_id}"))
     items = _resolve_duplicates(items)
+    return _upsert_redirects(items)
 
-    with SessionLocal() as db:
-        for name, target_url in items:
-            link = db.query(Redirect).filter(Redirect.name == name).first()
-            if link:
-                link.target_url = target_url
-            else:
-                db.add(Redirect(name=name, target_url=target_url))
-        db.commit()
-    return len(items)
 
 def import_from_json_simple(data):
     items = []
@@ -101,18 +73,11 @@ def import_from_json_simple(data):
             continue
         items.append((name, f"{ACESTREAM_BASE}{ace_id}"))
     items = _resolve_duplicates(items)
+    return _upsert_redirects(items)
 
-    with SessionLocal() as db:
-        for name, target_url in items:
-            link = db.query(Redirect).filter(Redirect.name == name).first()
-            if link:
-                link.target_url = target_url
-            else:
-                db.add(Redirect(name=name, target_url=target_url))
-        db.commit()
-    return len(items)
 
 # --- HANDLERS DEL BOT ---
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
     keyboard = [[InlineKeyboardButton("📋 Listar enlaces", callback_data='list')]]
@@ -128,6 +93,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+
 async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
     try:
@@ -141,6 +107,7 @@ async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Error en /set: %s", e)
         await update.message.reply_text("❌ Error. Uso: `/set nombre url`")
+
 
 async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
@@ -160,6 +127,7 @@ async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error en /setace: %s", e)
         await update.message.reply_text("❌ Error. Uso: `/setace nombre id_acestream`")
 
+
 async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
     try:
@@ -176,6 +144,7 @@ async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error en /del: %s", e)
         await update.message.reply_text("❌ Uso: `/del nombre`")
 
+
 async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
     with SessionLocal() as db:
@@ -189,6 +158,7 @@ async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
+
 
 async def addlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
@@ -207,6 +177,7 @@ async def addlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode='Markdown'
     )
+
 
 async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
@@ -233,6 +204,7 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Error al procesar entrada JSON: %s", e)
         await update.message.reply_text(f"❌ Error al procesar los datos: {e}")
+
 
 async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
@@ -265,20 +237,19 @@ async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     if query.data == 'list':
         with SessionLocal() as db:
             links = db.query(Redirect).all()
             if links:
-                # Aquí la modificación: Mostramos nombre y URL (usando monoespaciado para que quede limpio)
                 text = "🛰 **Rutas actuales:**\n\n"
                 text += "\n".join([f"🔹 `{l.name}` ➔ {l.target_url}" for l in links])
             else:
                 text = "No hay rutas configuradas."
-            
             await query.edit_message_text(text=text, parse_mode='Markdown', disable_web_page_preview=True)
 
     elif query.data == 'clear_confirm':
@@ -348,7 +319,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             disable_web_page_preview=True
         )
 
+
 # --- CICLO DE VIDA ---
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not TOKEN:
@@ -357,7 +330,7 @@ async def lifespan(app: FastAPI):
         return
 
     application = ApplicationBuilder().token(TOKEN).build()
-    
+
     # Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("set", set_cmd))
@@ -380,19 +353,22 @@ async def lifespan(app: FastAPI):
         BotCommand("addlist", "Importar lista de canales"),
         BotCommand("reredirect", "Apuntar ruta fija a otro canal")
     ])
-    
+
     await application.start()
     await application.updater.start_polling()
     logger.info("Bot y comandos registrados correctamente.")
-    
+
     yield
-    
+
     await application.updater.stop()
     await application.stop()
     await application.shutdown()
 
+
 # --- FASTAPI ---
+
 app = FastAPI(title="httpredirect", lifespan=lifespan)
+
 
 @app.get("/r/{name}")
 def dynamic_redirect(name: str, db: Session = Depends(get_db)):
