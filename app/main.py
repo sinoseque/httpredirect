@@ -237,7 +237,17 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_ID: return
     if not REDIRECT_NAME:
-        await update.message.reply_text("❌ Error: `REDIRECT_NAME` no está configurada en las variables de entorno.")
+        await update.message.reply_text(
+            "❌ **REDIRECT_NAME** no está definida.\n\n"
+            "Para usar `/reredirect` necesitas añadir la variable de entorno "
+            "`REDIRECT_NAME` en tu `docker-compose.yml`:\n\n"
+            "```yaml\n"
+            "environment:\n"
+            "  - REDIRECT_NAME=f\n"
+            "```\n\n"
+            "Después de añadirla, reinicia el contenedor.",
+            parse_mode='Markdown'
+        )
         return
 
     with SessionLocal() as db:

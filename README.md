@@ -64,7 +64,20 @@ Al iniciar el bot en Telegram, dispondrás de los siguientes comandos:
 *   `/del <nombre>`: Elimina una ruta de la base de datos.
 *   `/clear`: Elimina **todas** las rutas de la base de datos (pide confirmación).
 *   `/addlist`: Importa una lista de canales desde JSON (URL configurada, URL personalizada o pegado manual).
-*   `/reredirect`: Apunta la ruta fija (`REDIRECT_NAME`) a otro canal existente, formando una cadena de redirecciones.
+*   `/reredirect`: Apunta la ruta fija (`REDIRECT_NAME`) a otro canal existente.
+
+    **Flujo:**
+    1. Define `REDIRECT_NAME=f` en las variables de entorno del contenedor.
+    2. En Telegram ejecutas `/reredirect`.
+    3. El bot muestra botones con todos los canales configurados.
+    4. Pulsas uno (ej: `canal1`).
+    5. El bot crea/actualiza la ruta `f` apuntando a `canal1`.
+    6. Al acceder a `http://ip:8000/r/f`:
+       - El servidor ve que `f` apunta a `canal1`.
+       - Busca `canal1` y te redirige a su URL final.
+       - Resultado: `/r/f` ➔ `/r/canal1` ➔ `http://URL_real`.
+
+    Si el canal al que apunta `f` se borra, al acceder a `/r/f` recibirás un aviso.
 
 ---
 
