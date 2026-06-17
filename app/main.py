@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 
 from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, PlainTextResponse
 from sqlalchemy import Column, String, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -25,6 +25,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 ALLOWED_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 ACESTREAM_BASE = os.getenv("URL_BASE_ACESTREAM", "")
 CHANNEL_LIST_URL = os.getenv("CHANNEL_LIST_URL", "")
+REDIRECT_NAME = os.getenv("REDIRECT_NAME", "")
 DATABASE_URL = "sqlite:///./data/redirects.db"
 
 os.makedirs("./data", exist_ok=True)
@@ -122,7 +123,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 `/setace <nombre> <id>` -> Redirección AceStream\n"
         "🔹 `/del <nombre>` -> Eliminar ruta\n"
         "🔹 `/clear` -> Eliminar **todas** las rutas\n"
-        "🔹 `/addlist` -> Importar lista de canales"
+        "🔹 `/addlist` -> Importar lista de canales\n"
+        "🔹 `/reredirect` -> Apuntar `REDIRECT_NAME` a otro canal"
     )
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -232,6 +234,27 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error al procesar entrada JSON: %s", e)
         await update.message.reply_text(f"❌ Error al procesar los datos: {e}")
 
+async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_ID: return
+    if not REDIRECT_NAME:
+        await update.message.reply_text("❌ Error: `REDIRECT_NAME` no está configurada en las variables de entorno.")
+        return
+
+    with SessionLocal() as db:
+        links = db.query(Redirect).filter(Redirect.name != REDIRECT_NAME).all()
+        if not links:
+            await update.message.reply_text("📭 No hay otras rutas configuradas para apuntar.")
+            return
+
+    keyboard = [[InlineKeyboardButton(l.name, callback_data=f"reredirect:{l.name}")] for l in links]
+    keyboard = [keyboard[i:i+2] for i in range(0, len(keyboard), 2)]
+
+    await update.message.reply_text(
+        f"🎯 **Selecciona la ruta a la que quieres que apunte `{REDIRECT_NAME}`:**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -294,6 +317,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
+    elif query.data.startswith('reredirect:'):
+        target_name = query.data[len('reredirect:'):]
+        with SessionLocal() as db:
+            link = db.query(Redirect).filter(Redirect.name == REDIRECT_NAME).first()
+            reredirect_url = f"@reredirect:{target_name}"
+            if link:
+                link.target_url = reredirect_url
+            else:
+                db.add(Redirect(name=REDIRECT_NAME, target_url=reredirect_url))
+            db.commit()
+
+            target = db.query(Redirect).filter(Redirect.name == target_name).first()
+            target_url = target.target_url if target else '?'
+
+        await query.edit_message_text(
+            f"✅ **Ruta actualizada:**\n\n"
+            f"`{REDIRECT_NAME}` ➔ `{target_name}` ➔ {target_url}",
+            parse_mode='Markdown',
+            disable_web_page_preview=True
+        )
+
 # --- CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -311,6 +355,7 @@ async def lifespan(app: FastAPI):
     application.add_handler(CommandHandler("del", del_cmd))
     application.add_handler(CommandHandler("clear", clear_cmd))
     application.add_handler(CommandHandler("addlist", addlist_cmd))
+    application.add_handler(CommandHandler("reredirect", reredirect_cmd))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_json_input))
     application.add_handler(CallbackQueryHandler(button_handler))
 
@@ -322,7 +367,8 @@ async def lifespan(app: FastAPI):
         BotCommand("setace", "AceStream: /setace nombre id"),
         BotCommand("del", "Borrar ruta: /del nombre"),
         BotCommand("clear", "Borrar todas las rutas"),
-        BotCommand("addlist", "Importar lista de canales")
+        BotCommand("addlist", "Importar lista de canales"),
+        BotCommand("reredirect", "Apuntar ruta fija a otro canal")
     ])
     
     await application.start()
@@ -342,4 +388,16 @@ app = FastAPI(title="httpredirect", lifespan=lifespan)
 def dynamic_redirect(name: str, db: Session = Depends(get_db)):
     link = db.query(Redirect).filter(Redirect.name == name).first()
     if not link: raise HTTPException(status_code=404)
-    return RedirectResponse(url=link.target_url, status_code=302)
+
+    target = link.target_url
+    if target.startswith("@reredirect:"):
+        inner_name = target[len("@reredirect:"):]
+        inner = db.query(Redirect).filter(Redirect.name == inner_name).first()
+        if not inner:
+            return PlainTextResponse(
+                f"⚠️ La ruta '{name}' apunta a '{inner_name}', pero esa ruta ya no existe.",
+                status_code=404
+            )
+        target = inner.target_url
+
+    return RedirectResponse(url=target, status_code=302)
