@@ -246,8 +246,8 @@ async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📭 No hay otras rutas configuradas para apuntar.")
             return
 
-    keyboard = [[InlineKeyboardButton(l.name, callback_data=f"reredirect:{l.name}")] for l in links]
-    keyboard = [keyboard[i:i+2] for i in range(0, len(keyboard), 2)]
+    buttons = [InlineKeyboardButton(l.name, callback_data=f"reredirect:{l.name}") for l in links]
+    keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
 
     await update.message.reply_text(
         f"🎯 **Selecciona la ruta a la que quieres que apunte `{REDIRECT_NAME}`:**",
