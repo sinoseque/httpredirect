@@ -52,6 +52,8 @@ def _upsert_redirects(items):
 
 
 def import_from_json_hashes(data):
+    if not ACESTREAM_BASE:
+        raise ValueError("URL_BASE_ACESTREAM no está definida.")
     items = []
     for item in data.get("hashes", []):
         title = item.get("title", "")
@@ -65,6 +67,8 @@ def import_from_json_hashes(data):
 
 
 def import_from_json_simple(data):
+    if not ACESTREAM_BASE:
+        raise ValueError("URL_BASE_ACESTREAM no está definida.")
     items = []
     for item in data:
         name = item.get("name", "")
