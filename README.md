@@ -32,6 +32,8 @@ services:
       - TELEGRAM_TOKEN=tu_token_aqui
       - ALLOWED_USER_ID=tu_id_numerico_aqui
       - URL_BASE_ACESTREAM=http://tu-motor-ace:6878/ace/getstream?id=
+      - CHANNEL_LIST_URL=https://ejemplo.com/hashes.json
+      - REDIRECT_NAME=f
       - LOG_LEVEL=INFO
       - PORT=8000
     volumes:
