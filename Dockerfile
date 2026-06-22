@@ -17,4 +17,4 @@ RUN mkdir -p /app/data
 EXPOSE 8000
 
 # Usamos la variable PORT en el comando de arranque
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "${PORT}"]
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
