@@ -272,12 +272,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == 'list':
         with SessionLocal() as db:
             links = db.query(Redirect).all()
-            if links:
-                text = "🛰 **Rutas actuales:**\n\n"
-                text += "\n".join([f"🔹 `{l.name}` ➔ {l.target_url}" for l in links])
+            if not links:
+                await query.edit_message_text("No hay rutas configuradas.")
+                return
+
+        lines = [f"🔹 `{l.name}` ➔ {l.target_url}" for l in links]
+        header = "🛰 **Rutas actuales:**\n\n"
+        max_len = 4000
+
+        parts = []
+        current = header
+        for line in lines:
+            candidate = current + line + "\n"
+            if len(candidate) > max_len:
+                parts.append(current)
+                current = header + line + "\n"
             else:
-                text = "No hay rutas configuradas."
-            await query.edit_message_text(text=text, parse_mode='Markdown', disable_web_page_preview=True)
+                current = candidate
+        if current:
+            parts.append(current)
+
+        await query.edit_message_text(parts[0], parse_mode='Markdown', disable_web_page_preview=True)
+        for part in parts[1:]:
+            await update.effective_message.reply_text(part, parse_mode='Markdown', disable_web_page_preview=True)
 
     elif query.data == 'clear_confirm':
         with SessionLocal() as db:
