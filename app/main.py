@@ -24,7 +24,7 @@ def restricted(func):
             if update.callback_query:
                 await update.callback_query.answer("⛔ No autorizado.", show_alert=True)
             else:
-                await update.message.reply_text("⛔ No autorizado.")
+                await update.effective_message.reply_text("⛔ No autorizado.")
             return
         return await func(update, context, *args, **kwargs)
     return wrapper
@@ -149,7 +149,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 `/addlist` -> Importar lista de canales\n"
         "🔹 `/reredirect` -> Apuntar `REDIRECT_NAME` a otro canal"
     )
-    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    await update.effective_message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
 @restricted
@@ -161,16 +161,16 @@ async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if link: link.target_url = url
             else: db.add(Redirect(name=name, target_url=url))
             db.commit()
-        await update.message.reply_text(f"✅ Guardado: `{name}` -> `{url}`", parse_mode='Markdown')
+        await update.effective_message.reply_text(f"✅ Guardado: `{name}` -> `{url}`", parse_mode='Markdown')
     except Exception as e:
         logger.exception("Error en /set: %s", e)
-        await update.message.reply_text("❌ Error. Uso: `/set nombre url`")
+        await update.effective_message.reply_text("❌ Error. Uso: `/set nombre url`")
 
 
 @restricted
 async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ACESTREAM_BASE:
-        await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
+        await update.effective_message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
         return
     try:
         name, ace_id = context.args[0], context.args[1]
@@ -180,10 +180,10 @@ async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if link: link.target_url = full_url
             else: db.add(Redirect(name=name, target_url=full_url))
             db.commit()
-        await update.message.reply_text(f"📺 **AceStream guardado:**\n`{name}` -> `{ace_id}`", parse_mode='Markdown')
+        await update.effective_message.reply_text(f"📺 **AceStream guardado:**\n`{name}` -> `{ace_id}`", parse_mode='Markdown')
     except Exception as e:
         logger.exception("Error en /setace: %s", e)
-        await update.message.reply_text("❌ Error. Uso: `/setace nombre id_acestream`")
+        await update.effective_message.reply_text("❌ Error. Uso: `/setace nombre id_acestream`")
 
 
 @restricted
@@ -195,12 +195,12 @@ async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if link:
                 db.delete(link)
                 db.commit()
-                await update.message.reply_text(f"🗑 `{name}` eliminado.")
+                await update.effective_message.reply_text(f"🗑 `{name}` eliminado.")
             else:
-                await update.message.reply_text(f"❓ No encontré `{name}`.")
+                await update.effective_message.reply_text(f"❓ No encontré `{name}`.")
     except Exception as e:
         logger.exception("Error en /del: %s", e)
-        await update.message.reply_text("❌ Uso: `/del nombre`")
+        await update.effective_message.reply_text("❌ Uso: `/del nombre`")
 
 
 @restricted
@@ -208,10 +208,10 @@ async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with SessionLocal() as db:
         count = db.query(Redirect).count()
         if count == 0:
-            await update.message.reply_text("📭 No hay rutas configuradas para borrar.")
+            await update.effective_message.reply_text("📭 No hay rutas configuradas para borrar.")
             return
     keyboard = [[InlineKeyboardButton("✅ Sí, borrar todo", callback_data="clear_confirm")]]
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         f"⚠️ ¿Estás seguro de que quieres borrar **todas** las rutas ({count} en total)?",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
@@ -221,7 +221,7 @@ async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @restricted
 async def addlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ACESTREAM_BASE:
-        await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
+        await update.effective_message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
         return
 
     buttons = []
@@ -230,7 +230,7 @@ async def addlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buttons.append([InlineKeyboardButton("🔗 Pegar URL", callback_data="addlist_paste_url")])
     buttons.append([InlineKeyboardButton("📝 Pegar JSON", callback_data="addlist_paste_json")])
 
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         "📥 **Importar lista de canales**\n\n¿De dónde quieres cargar los datos?",
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode='Markdown'
@@ -245,24 +245,24 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if mode == 'url':
-            data = await _fetch_json(update.message.text)
+            data = await _fetch_json(update.effective_message.text)
             count = import_from_json_hashes(data)
         elif mode == 'simple':
-            data = json.loads(update.message.text)
+            data = json.loads(update.effective_message.text)
             count = import_from_json_simple(data)
         else:
-            data = json.loads(update.message.text)
+            data = json.loads(update.effective_message.text)
             count = import_from_json_hashes(data)
-        await update.message.reply_text(f"✅ Importación completada: **{count}** rutas añadidas/actualizadas.", parse_mode='Markdown')
+        await update.effective_message.reply_text(f"✅ Importación completada: **{count}** rutas añadidas/actualizadas.", parse_mode='Markdown')
     except Exception as e:
         logger.exception("Error al procesar entrada JSON: %s", e)
-        await update.message.reply_text(f"❌ Error al procesar los datos: {e}")
+        await update.effective_message.reply_text(f"❌ Error al procesar los datos: {e}")
 
 
 @restricted
 async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not REDIRECT_NAME:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "❌ **REDIRECT_NAME** no está definida.\n\n"
             "Para usar `/reredirect` necesitas añadir la variable de entorno "
             "`REDIRECT_NAME` en tu `docker-compose.yml`:\n\n"
@@ -278,12 +278,12 @@ async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with SessionLocal() as db:
         links = db.query(Redirect).filter(Redirect.name != REDIRECT_NAME).all()
         if not links:
-            await update.message.reply_text("📭 No hay otras rutas configuradas para apuntar.")
+            await update.effective_message.reply_text("📭 No hay otras rutas configuradas para apuntar.")
             return
 
     context.user_data['reredirect_links'] = [(l.name, l.target_url) for l in links]
     text, reply_markup = _build_reredirect_page(context.user_data['reredirect_links'], 0)
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await update.effective_message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
 @restricted
