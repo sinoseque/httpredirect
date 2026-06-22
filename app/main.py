@@ -469,3 +469,8 @@ def dynamic_redirect(name: str):
             target = inner.target_url
 
         return RedirectResponse(url=target, status_code=302)
+
+
+@app.head("/r/{name}")
+def dynamic_redirect_head(name: str):
+    return dynamic_redirect(name)
