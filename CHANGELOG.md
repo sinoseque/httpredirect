@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.3.3] - 2026-06-22
+
+### Added
+- Validación de `TELEGRAM_TOKEN` y `ALLOWED_USER_ID` al arranque
+- Mensaje "⛔ No autorizado" para usuarios no permitidos en el bot
+- `DATABASE_URL` configurable mediante variable de entorno
+
+### Changed
+- Autorización extraída a decorator `@restricted`, eliminando 8 checks duplicados
+- Lógica HTTP de fetching JSON unificada en `_fetch_json()`
+- Patrón de sesión de BD unificado (eliminado `get_db()`)
+- `requirements.txt`: versiones mínimas fijadas para todas las dependencias
+- Dockerfile actualizado a Python 3.12
+- Workflow CI: actions actualizadas (checkout@v4, setup-qemu@v3, etc.)
+
+### Fixed
+- Resolución `@reredirect` ahora soporta cadenas de más de 2 niveles con detección de ciclos
+- Validación de `ACESTREAM_BASE` en funciones de importación
+
+### Internal
+- Añadida skill `publish-gh` para automatizar el flujo de publicación
+
 ## [1.3.0] - 2026-06-17
 
 ### Changed
