@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 # Valores por defecto para las variables
 ENV LOG_LEVEL=WARNING
 ENV PORT=8000
@@ -17,4 +17,4 @@ RUN mkdir -p /app/data
 EXPOSE 8000
 
 # Usamos la variable PORT en el comando de arranque
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "${PORT}"]
