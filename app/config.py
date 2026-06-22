@@ -10,6 +10,6 @@ ALLOWED_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 ACESTREAM_BASE = os.getenv("URL_BASE_ACESTREAM", "")
 CHANNEL_LIST_URL = os.getenv("CHANNEL_LIST_URL", "")
 REDIRECT_NAME = os.getenv("REDIRECT_NAME", "")
-DATABASE_URL = "sqlite:///./data/redirects.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/redirects.db")
 
 os.makedirs("./data", exist_ok=True)

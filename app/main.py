@@ -5,15 +5,29 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, PlainTextResponse
-from sqlalchemy.orm import Session
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
+from functools import wraps
+
 from .config import TOKEN, ALLOWED_ID, ACESTREAM_BASE, CHANNEL_LIST_URL, REDIRECT_NAME, logger
-from .database import SessionLocal, Redirect, get_db
+from .database import SessionLocal, Redirect
+
+
+def restricted(func):
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if update.effective_user.id != ALLOWED_ID:
+            if update.callback_query:
+                await update.callback_query.answer("⛔ No autorizado.", show_alert=True)
+            else:
+                await update.message.reply_text("⛔ No autorizado.")
+            return
+        return await func(update, context, *args, **kwargs)
+    return wrapper
 
 # --- HELPERS ---
 
@@ -37,6 +51,19 @@ def _resolve_duplicates(items):
             seen[name] = 0
             resolved.append((name, target_url))
     return resolved
+
+
+async def _fetch_json(url: str) -> dict:
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            url, timeout=30,
+            headers={"User-Agent": "Mozilla/5.0"},
+            follow_redirects=True
+        )
+        logger.debug("GET %s -> status %d", url, resp.status_code)
+        logger.debug("Respuesta: %s", resp.text[:500])
+        resp.raise_for_status()
+        return resp.json()
 
 
 def _upsert_redirects(items):
@@ -82,8 +109,8 @@ def import_from_json_simple(data):
 
 # --- HANDLERS DEL BOT ---
 
+@restricted
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     keyboard = [[InlineKeyboardButton("📋 Listar enlaces", callback_data='list')]]
     msg = (
         "🚀 **Redirect Bot Activo**\n\n"
@@ -98,8 +125,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
+@restricted
 async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     try:
         name, url = context.args[0], context.args[1]
         with SessionLocal() as db:
@@ -113,8 +140,8 @@ async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Error. Uso: `/set nombre url`")
 
 
+@restricted
 async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     if not ACESTREAM_BASE:
         await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
         return
@@ -132,8 +159,8 @@ async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Error. Uso: `/setace nombre id_acestream`")
 
 
+@restricted
 async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     try:
         name = context.args[0]
         with SessionLocal() as db:
@@ -149,8 +176,8 @@ async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Uso: `/del nombre`")
 
 
+@restricted
 async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     with SessionLocal() as db:
         count = db.query(Redirect).count()
         if count == 0:
@@ -164,8 +191,8 @@ async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@restricted
 async def addlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     if not ACESTREAM_BASE:
         await update.message.reply_text("❌ Error: `URL_BASE_ACESTREAM` no está definida.")
         return
@@ -183,20 +210,15 @@ async def addlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@restricted
 async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     mode = context.user_data.pop('awaiting', None)
     if not mode:
         return
 
     try:
         if mode == 'url':
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(update.message.text, timeout=30, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
-                logger.debug("GET %s -> status %d", update.message.text, resp.status_code)
-                logger.debug("Respuesta: %s", resp.text[:500])
-                resp.raise_for_status()
-                data = resp.json()
+            data = await _fetch_json(update.message.text)
             count = import_from_json_hashes(data)
         elif mode == 'simple':
             data = json.loads(update.message.text)
@@ -210,8 +232,8 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error al procesar los datos: {e}")
 
 
+@restricted
 async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_ID: return
     if not REDIRECT_NAME:
         await update.message.reply_text(
             "❌ **REDIRECT_NAME** no está definida.\n\n"
@@ -242,6 +264,7 @@ async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -265,13 +288,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'addlist_url':
         await query.edit_message_text("⏳ Descargando lista desde URL...")
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(CHANNEL_LIST_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
-                logger.debug("GET %s -> status %d", CHANNEL_LIST_URL, resp.status_code)
-                logger.debug("Respuesta: %s", resp.text[:500])
-                resp.raise_for_status()
-                data = resp.json()
-                count = import_from_json_hashes(data)
+            data = await _fetch_json(CHANNEL_LIST_URL)
+            count = import_from_json_hashes(data)
             await query.edit_message_text(f"✅ Importación completada: **{count}** rutas añadidas/actualizadas.", parse_mode='Markdown')
         except httpx.HTTPStatusError as e:
             logger.exception("Error HTTP %s en URL configurada", e.response.status_code)
@@ -328,8 +346,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    missing = []
     if not TOKEN:
-        logger.error("TELEGRAM_TOKEN no configurado.")
+        missing.append("TELEGRAM_TOKEN")
+    if ALLOWED_ID == 0:
+        missing.append("ALLOWED_USER_ID")
+    if missing:
+        logger.error("Variables de entorno no configuradas: %s", ", ".join(missing))
         yield
         return
 
@@ -375,19 +398,28 @@ app = FastAPI(title="httpredirect", lifespan=lifespan)
 
 
 @app.get("/r/{name}")
-def dynamic_redirect(name: str, db: Session = Depends(get_db)):
-    link = db.query(Redirect).filter(Redirect.name == name).first()
-    if not link: raise HTTPException(status_code=404)
+def dynamic_redirect(name: str):
+    with SessionLocal() as db:
+        link = db.query(Redirect).filter(Redirect.name == name).first()
+        if not link:
+            raise HTTPException(status_code=404)
 
-    target = link.target_url
-    if target.startswith("@reredirect:"):
-        inner_name = target[len("@reredirect:"):]
-        inner = db.query(Redirect).filter(Redirect.name == inner_name).first()
-        if not inner:
-            return PlainTextResponse(
-                f"⚠️ La ruta '{name}' apunta a '{inner_name}', pero esa ruta ya no existe.",
-                status_code=404
-            )
-        target = inner.target_url
+        target = link.target_url
+        visited = {name}
+        while target.startswith("@reredirect:"):
+            inner_name = target[len("@reredirect:"):]
+            if inner_name in visited:
+                return PlainTextResponse(
+                    "⚠️ Ciclo detectado en la cadena de redirecciones.",
+                    status_code=404
+                )
+            visited.add(inner_name)
+            inner = db.query(Redirect).filter(Redirect.name == inner_name).first()
+            if not inner:
+                return PlainTextResponse(
+                    f"⚠️ La ruta '{name}' apunta a '{inner_name}', pero esa ruta ya no existe.",
+                    status_code=404
+                )
+            target = inner.target_url
 
-    return RedirectResponse(url=target, status_code=302)
+        return RedirectResponse(url=target, status_code=302)
