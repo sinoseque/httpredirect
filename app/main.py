@@ -53,6 +53,33 @@ def _resolve_duplicates(items):
     return resolved
 
 
+PAGE_SIZE = 10
+
+
+def _build_reredirect_page(links, page):
+    total_pages = (len(links) + PAGE_SIZE - 1) // PAGE_SIZE
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_links = links[start:end]
+
+    buttons = [InlineKeyboardButton(name, callback_data=f"reredirect:{name}") for name, _ in page_links]
+    keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Anterior", callback_data=f"reredirect_page:{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("Siguiente ▶️", callback_data=f"reredirect_page:{page+1}"))
+    if nav:
+        keyboard.append(nav)
+
+    text = (
+        f"🎯 **Selecciona la ruta a la que quieres que apunte `{REDIRECT_NAME}`:**\n"
+        f"Página {page+1}/{total_pages}"
+    )
+    return text, InlineKeyboardMarkup(keyboard)
+
+
 async def _fetch_json(url: str) -> dict:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -254,14 +281,9 @@ async def reredirect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📭 No hay otras rutas configuradas para apuntar.")
             return
 
-    buttons = [InlineKeyboardButton(l.name, callback_data=f"reredirect:{l.name}") for l in links]
-    keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
-
-    await update.message.reply_text(
-        f"🎯 **Selecciona la ruta a la que quieres que apunte `{REDIRECT_NAME}`:**",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    context.user_data['reredirect_links'] = [(l.name, l.target_url) for l in links]
+    text, reply_markup = _build_reredirect_page(context.user_data['reredirect_links'], 0)
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
 @restricted
@@ -337,8 +359,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
+    elif query.data.startswith('reredirect_page:'):
+        page = int(query.data[len('reredirect_page:'):])
+        links = context.user_data.get('reredirect_links', [])
+        text, reply_markup = _build_reredirect_page(links, page)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
     elif query.data.startswith('reredirect:'):
         target_name = query.data[len('reredirect:'):]
+        context.user_data.pop('reredirect_links', None)
         with SessionLocal() as db:
             link = db.query(Redirect).filter(Redirect.name == REDIRECT_NAME).first()
             reredirect_url = f"@reredirect:{target_name}"
