@@ -468,6 +468,14 @@ def dynamic_redirect(name: str):
                 )
             target = inner.target_url
 
+        if target.startswith("http"):
+            try:
+                with httpx.Client(follow_redirects=True, timeout=10) as client:
+                    resp = client.get(target)
+                    target = str(resp.url)
+            except Exception:
+                logger.debug("Error al resolver cadena de redirects para %s", target)
+
         return RedirectResponse(url=target, status_code=302)
 
 
