@@ -80,6 +80,30 @@ def _build_reredirect_page(links, page):
     return text, InlineKeyboardMarkup(keyboard)
 
 
+def _build_delete_page(links, page):
+    total_pages = (len(links) + PAGE_SIZE - 1) // PAGE_SIZE
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_links = links[start:end]
+
+    buttons = [InlineKeyboardButton(name, callback_data=f"delete_select:{name}") for name, _ in page_links]
+    keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Anterior", callback_data=f"delete_page:{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("Siguiente ▶️", callback_data=f"delete_page:{page+1}"))
+    if nav:
+        keyboard.append(nav)
+
+    text = (
+        f"🗑 **Selecciona la ruta que quieres borrar:**\n"
+        f"Página {page+1}/{total_pages}"
+    )
+    return text, InlineKeyboardMarkup(keyboard)
+
+
 async def _fetch_json(url: str) -> dict:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -144,9 +168,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**Comandos:**\n"
         "🔹 `/set <nombre> <url>` -> Redirección normal\n"
         "🔹 `/setace <nombre> <id>` -> Redirección AceStream\n"
-        "🔹 `/del <nombre>` -> Eliminar ruta\n"
+        "🔹 `/del <nombre>` -> Borrar ruta (con confirmación)\n"
         "🔹 `/clear` -> Eliminar **todas** las rutas\n"
         "🔹 `/addlist` -> Importar lista de canales\n"
+        "🔹 `/list` -> Listar todas las rutas\n"
         "🔹 `/reredirect` -> Apuntar `REDIRECT_NAME` a otro canal"
     )
     await update.effective_message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -187,20 +212,61 @@ async def set_acestream(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
+async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    with SessionLocal() as db:
+        links = db.query(Redirect).all()
+        if not links:
+            await update.effective_message.reply_text("📭 No hay rutas configuradas.")
+            return
+
+    lines = [f"🔹 `{l.name}` ➔ {l.target_url}" for l in links]
+    header = "🛰 **Rutas actuales:**\n\n"
+    max_len = 4000
+
+    parts = []
+    current = header
+    for line in lines:
+        candidate = current + line + "\n"
+        if len(candidate) > max_len:
+            parts.append(current)
+            current = header + line + "\n"
+        else:
+            current = candidate
+    if current:
+        parts.append(current)
+
+    await update.effective_message.reply_text(parts[0], parse_mode='Markdown', disable_web_page_preview=True)
+    for part in parts[1:]:
+        await update.effective_message.reply_text(part, parse_mode='Markdown', disable_web_page_preview=True)
+
+
+@restricted
 async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
+    if context.args:
         name = context.args[0]
         with SessionLocal() as db:
             link = db.query(Redirect).filter(Redirect.name == name).first()
-            if link:
-                db.delete(link)
-                db.commit()
-                await update.effective_message.reply_text(f"🗑 `{name}` eliminado.")
-            else:
+            if not link:
                 await update.effective_message.reply_text(f"❓ No encontré `{name}`.")
-    except Exception as e:
-        logger.exception("Error en /del: %s", e)
-        await update.effective_message.reply_text("❌ Uso: `/del nombre`")
+                return
+        keyboard = [
+            [InlineKeyboardButton("✅ Sí, borrar", callback_data=f"delete_execute:{name}")],
+            [InlineKeyboardButton("❌ No, cancelar", callback_data="delete_cancel_named")]
+        ]
+        await update.effective_message.reply_text(
+            f"⚠️ ¿Estás seguro de que quieres borrar `{name}`?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    else:
+        with SessionLocal() as db:
+            links = db.query(Redirect).all()
+            if not links:
+                await update.effective_message.reply_text("📭 No hay rutas configuradas para borrar.")
+                return
+        context.user_data['delete_links'] = [(l.name, l.target_url) for l in links]
+        text, reply_markup = _build_delete_page(context.user_data['delete_links'], 0)
+        await update.effective_message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
 @restricted
@@ -387,6 +453,47 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             disable_web_page_preview=True
         )
 
+    elif query.data.startswith('delete_page:'):
+        page = int(query.data[len('delete_page:'):])
+        links = context.user_data.get('delete_links', [])
+        text, reply_markup = _build_delete_page(links, page)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    elif query.data.startswith('delete_select:'):
+        target_name = query.data[len('delete_select:'):]
+        context.user_data['delete_target'] = target_name
+        keyboard = [
+            [InlineKeyboardButton("✅ Sí, borrar", callback_data=f"delete_execute:{target_name}")],
+            [InlineKeyboardButton("❌ No, volver", callback_data="delete_cancel")]
+        ]
+        await query.edit_message_text(
+            f"⚠️ ¿Estás seguro de que quieres borrar `{target_name}`?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+
+    elif query.data.startswith('delete_execute:'):
+        target_name = query.data[len('delete_execute:'):]
+        context.user_data.pop('delete_links', None)
+        context.user_data.pop('delete_target', None)
+        with SessionLocal() as db:
+            link = db.query(Redirect).filter(Redirect.name == target_name).first()
+            if link:
+                db.delete(link)
+                db.commit()
+                await query.edit_message_text(f"🗑 `{target_name}` eliminado.")
+            else:
+                await query.edit_message_text(f"❓ No encontré `{target_name}`.")
+
+    elif query.data == 'delete_cancel':
+        context.user_data.pop('delete_target', None)
+        links = context.user_data.get('delete_links', [])
+        text, reply_markup = _build_delete_page(links, 0)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    elif query.data == 'delete_cancel_named':
+        await query.edit_message_text("❌ Cancelado.")
+
 
 # --- CICLO DE VIDA ---
 
@@ -412,6 +519,7 @@ async def lifespan(app: FastAPI):
     application.add_handler(CommandHandler("clear", clear_cmd))
     application.add_handler(CommandHandler("addlist", addlist_cmd))
     application.add_handler(CommandHandler("reredirect", reredirect_cmd))
+    application.add_handler(CommandHandler("list", list_cmd))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_json_input))
     application.add_handler(CallbackQueryHandler(button_handler))
 
@@ -421,10 +529,11 @@ async def lifespan(app: FastAPI):
         BotCommand("start", "Menú principal"),
         BotCommand("set", "Redirección normal: /set nombre url"),
         BotCommand("setace", "AceStream: /setace nombre id"),
-        BotCommand("del", "Borrar ruta: /del nombre"),
+        BotCommand("del", "Borrar ruta: /del nombre o lista interactiva"),
         BotCommand("clear", "Borrar todas las rutas"),
         BotCommand("addlist", "Importar lista de canales"),
-        BotCommand("reredirect", "Apuntar ruta fija a otro canal")
+        BotCommand("reredirect", "Apuntar ruta fija a otro canal"),
+        BotCommand("list", "Listar todas las rutas")
     ])
 
     await application.start()

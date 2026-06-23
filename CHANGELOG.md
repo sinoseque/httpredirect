@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.4] - 2026-06-23
+
+### Added
+- `/list` — comando para listar todas las rutas configuradas
+- `/del` (sin argumentos) — lista interactiva paginada para seleccionar y borrar rutas
+
+### Changed
+- `/del <nombre>` ahora pide confirmación antes de borrar
+- README actualizado con la nueva documentación de comandos
+
+### Fixed
+- Reemplazado `update.message` por `update.effective_message` para evitar errores `NoneType`
+- Mensaje largo de listado dividido en fragmentos de 4000 caracteres
+- Añadido handler HEAD para `/r/{name}` (compatibilidad VLC en Linux)
+- Seguimiento de cadena HTTP redirect ahora se resuelve server-side para mejor compatibilidad con clientes
+
 ## [1.3.3] - 2026-06-22
 
 ### Added
