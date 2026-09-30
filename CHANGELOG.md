@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.5] - 2026-09-30
+
+### Changed
+- Refactor de la paginación: extraídos `_build_paged_page()`, `_build_redirect_list_parts()` y `_send_list_parts()` para eliminar código duplicado entre `/list`, `/del` y `/reredirect`
+
+### Added
+- Suite de tests con `pytest`: funciones puras, importación JSON, endpoint `/r/{name}` y decorator `@restricted`
+- `requirements-dev.txt` con la dependencia de test (`pytest`)
+- `Makefile` con el destino `make test`
+
+### Internal
+- Añadido `conftest.py` y `pytest.ini` para configuración de tests
+
 ## [1.3.4] - 2026-06-23
 
 ### Added
