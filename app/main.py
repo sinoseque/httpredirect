@@ -56,52 +56,61 @@ def _resolve_duplicates(items):
 PAGE_SIZE = 10
 
 
-def _build_reredirect_page(links, page):
+def _build_paged_page(links, page, item_prefix, nav_prefix, title):
     total_pages = (len(links) + PAGE_SIZE - 1) // PAGE_SIZE
     start = page * PAGE_SIZE
     end = start + PAGE_SIZE
     page_links = links[start:end]
 
-    buttons = [InlineKeyboardButton(name, callback_data=f"reredirect:{name}") for name, _ in page_links]
+    buttons = [InlineKeyboardButton(name, callback_data=f"{item_prefix}:{name}") for name, _ in page_links]
     keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
 
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("◀️ Anterior", callback_data=f"reredirect_page:{page-1}"))
+        nav.append(InlineKeyboardButton("◀️ Anterior", callback_data=f"{nav_prefix}:{page-1}"))
     if page < total_pages - 1:
-        nav.append(InlineKeyboardButton("Siguiente ▶️", callback_data=f"reredirect_page:{page+1}"))
+        nav.append(InlineKeyboardButton("Siguiente ▶️", callback_data=f"{nav_prefix}:{page+1}"))
     if nav:
         keyboard.append(nav)
 
     text = (
-        f"🎯 **Selecciona la ruta a la que quieres que apunte `{REDIRECT_NAME}`:**\n"
+        f"{title}\n"
         f"Página {page+1}/{total_pages}"
     )
     return text, InlineKeyboardMarkup(keyboard)
+
+
+def _build_reredirect_page(links, page):
+    return _build_paged_page(links, page, "reredirect", "reredirect_page", "🎯 **Selecciona la ruta a la que quieres que apunte `{REDIRECT_NAME}`:**")
 
 
 def _build_delete_page(links, page):
-    total_pages = (len(links) + PAGE_SIZE - 1) // PAGE_SIZE
-    start = page * PAGE_SIZE
-    end = start + PAGE_SIZE
-    page_links = links[start:end]
+    return _build_paged_page(links, page, "delete_select", "delete_page", "🗑 **Selecciona la ruta que quieres borrar:**")
 
-    buttons = [InlineKeyboardButton(name, callback_data=f"delete_select:{name}") for name, _ in page_links]
-    keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
 
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton("◀️ Anterior", callback_data=f"delete_page:{page-1}"))
-    if page < total_pages - 1:
-        nav.append(InlineKeyboardButton("Siguiente ▶️", callback_data=f"delete_page:{page+1}"))
-    if nav:
-        keyboard.append(nav)
+def _build_redirect_list_parts(links):
+    lines = [f"🔹 `{l.name}` ➔ {l.target_url}" for l in links]
+    header = "🛰 **Rutas actuales:**\n\n"
+    max_len = 4000
 
-    text = (
-        f"🗑 **Selecciona la ruta que quieres borrar:**\n"
-        f"Página {page+1}/{total_pages}"
-    )
-    return text, InlineKeyboardMarkup(keyboard)
+    parts = []
+    current = header
+    for line in lines:
+        candidate = current + line + "\n"
+        if len(candidate) > max_len:
+            parts.append(current)
+            current = header + line + "\n"
+        else:
+            current = candidate
+    if current:
+        parts.append(current)
+    return parts
+
+
+async def _send_list_parts(parts, send_first, send_rest):
+    await send_first(parts[0])
+    for part in parts[1:]:
+        await send_rest(part)
 
 
 async def _fetch_json(url: str) -> dict:
@@ -219,25 +228,15 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_text("📭 No hay rutas configuradas.")
             return
 
-    lines = [f"🔹 `{l.name}` ➔ {l.target_url}" for l in links]
-    header = "🛰 **Rutas actuales:**\n\n"
-    max_len = 4000
+    parts = _build_redirect_list_parts(links)
 
-    parts = []
-    current = header
-    for line in lines:
-        candidate = current + line + "\n"
-        if len(candidate) > max_len:
-            parts.append(current)
-            current = header + line + "\n"
-        else:
-            current = candidate
-    if current:
-        parts.append(current)
-
-    await update.effective_message.reply_text(parts[0], parse_mode='Markdown', disable_web_page_preview=True)
-    for part in parts[1:]:
+    async def send_first(part):
         await update.effective_message.reply_text(part, parse_mode='Markdown', disable_web_page_preview=True)
+
+    async def send_rest(part):
+        await update.effective_message.reply_text(part, parse_mode='Markdown', disable_web_page_preview=True)
+
+    await _send_list_parts(parts, send_first, send_rest)
 
 
 @restricted
@@ -364,25 +363,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("No hay rutas configuradas.")
                 return
 
-        lines = [f"🔹 `{l.name}` ➔ {l.target_url}" for l in links]
-        header = "🛰 **Rutas actuales:**\n\n"
-        max_len = 4000
+        parts = _build_redirect_list_parts(links)
 
-        parts = []
-        current = header
-        for line in lines:
-            candidate = current + line + "\n"
-            if len(candidate) > max_len:
-                parts.append(current)
-                current = header + line + "\n"
-            else:
-                current = candidate
-        if current:
-            parts.append(current)
+        async def send_first(part):
+            await query.edit_message_text(part, parse_mode='Markdown', disable_web_page_preview=True)
 
-        await query.edit_message_text(parts[0], parse_mode='Markdown', disable_web_page_preview=True)
-        for part in parts[1:]:
+        async def send_rest(part):
             await update.effective_message.reply_text(part, parse_mode='Markdown', disable_web_page_preview=True)
+
+        await _send_list_parts(parts, send_first, send_rest)
 
     elif query.data == 'clear_confirm':
         with SessionLocal() as db:
