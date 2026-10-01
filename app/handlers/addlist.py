@@ -3,7 +3,7 @@ import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from ..config import ACESTREAM_BASE, CHANNEL_LIST_URL, logger
+from ..config import ACESTREAM_BASE, CHANNEL_LIST_URL, logger, MAX_PASTE_JSON_SIZE
 from ..decorators import restricted
 from ..helpers import _fetch_json, import_from_json_hashes, import_from_json_simple
 
@@ -36,12 +36,21 @@ async def handle_json_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mode not in ('url', 'simple'):
         return
 
+    text = update.effective_message.text
+    if len(text) > MAX_PASTE_JSON_SIZE:
+        await update.effective_message.reply_text(
+            f"❌ El texto pegado es demasiado largo ({len(text)} caracteres). "
+            f"Máximo permitido: {MAX_PASTE_JSON_SIZE}.",
+            parse_mode='Markdown',
+        )
+        return
+
     try:
         if mode == 'url':
-            data = await _fetch_json(update.effective_message.text)
+            data = await _fetch_json(text)
             count = await import_from_json_hashes(data)
         else:
-            data = json.loads(update.effective_message.text)
+            data = json.loads(text)
             count = await import_from_json_simple(data)
 
         if count == 0:

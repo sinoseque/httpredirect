@@ -5,7 +5,7 @@ import httpx
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from .config import ACESTREAM_BASE, REDIRECT_NAME, logger
+from .config import ACESTREAM_BASE, REDIRECT_NAME, logger, FETCH_TIMEOUT_SECONDS, MAX_PASTE_JSON_SIZE
 from .database import RedirectRepository, SessionLocal
 
 PAGE_SIZE = 10
@@ -93,7 +93,7 @@ async def _send_list_parts(parts, send_first, send_rest):
 async def _fetch_json(url: str) -> dict:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            url, timeout=30,
+            url, timeout=FETCH_TIMEOUT_SECONDS,
             headers={"User-Agent": "Mozilla/5.0"},
             follow_redirects=True
         )

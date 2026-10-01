@@ -11,5 +11,7 @@ ACESTREAM_BASE = os.getenv("URL_BASE_ACESTREAM", "")
 CHANNEL_LIST_URL = os.getenv("CHANNEL_LIST_URL", "")
 REDIRECT_NAME = os.getenv("REDIRECT_NAME", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/redirects.db")
+FETCH_TIMEOUT_SECONDS = int(os.getenv("FETCH_TIMEOUT_SECONDS", "15"))
+MAX_PASTE_JSON_SIZE = int(os.getenv("MAX_PASTE_JSON_SIZE", "16384"))
 
 os.makedirs("./data", exist_ok=True)

@@ -279,6 +279,22 @@ async def test_handle_json_input_warns_when_empty():
     assert "⚠️" in args[0]
 
 
+async def test_handle_json_input_rejects_large_paste(monkeypatch):
+    from app.handlers import addlist as addlist_mod
+    monkeypatch.setattr(addlist_mod, "MAX_PASTE_JSON_SIZE", 16)
+    update, context = _cmd_update()
+    context.user_data["awaiting"] = "simple"
+    payload = '{"name":"canal","ace_id":"12345678901234"}'
+    update.effective_message.text = payload
+    from app.handlers.addlist import handle_json_input
+    await handle_json_input(update, context)
+    assert not await _count()
+    update.effective_message.reply_text.assert_awaited()
+    args, _ = update.effective_message.reply_text.await_args
+    assert "demasiado largo" in args[0]
+
+
+
 async def test_fetch_json_rejects_non_json_content_type():
     from app import helpers
 
@@ -343,6 +359,43 @@ async def test_fetch_json_accepts_json_content_type():
     with patch.object(helpers.httpx, "AsyncClient", return_value=_FakeClient(_FakeResp({"content-type": "application/json; charset=utf-8"}))):
         data = await helpers._fetch_json("https://example.com")
     assert data == [{"name": "a", "ace_id": "b"}]
+
+
+async def test_fetch_json_uses_configurable_timeout(monkeypatch):
+    from app import helpers
+    monkeypatch.setattr(helpers, "FETCH_TIMEOUT_SECONDS", 15)
+
+    class _Resp:
+        def __init__(self):
+            self.headers = {"content-type": "application/json"}
+            self.status_code = 200
+            self.text = "[]"
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    class _Client:
+        def __init__(self):
+            self.kwargs = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, **kwargs):
+            self.kwargs = kwargs
+            return _Resp()
+
+    client = _Client()
+    with patch.object(helpers.httpx, "AsyncClient", return_value=client):
+        await helpers._fetch_json("https://example.com")
+    assert client.kwargs["timeout"] == 15
+
 
 
 # --- reredirect ---

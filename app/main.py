@@ -8,7 +8,7 @@ from telegram import BotCommand
 from telegram.ext import ApplicationBuilder
 
 from .config import ACESTREAM_BASE, ALLOWED_ID, logger, TOKEN
-from .database import SessionLocal, RedirectRepository
+from .database import SessionLocal, RedirectRepository, engine, Base
 from .decorators import UsageError, _require_args, restricted
 from .handlers import ALL_HANDLERS
 from .helpers import (
@@ -24,6 +24,8 @@ __all__ = [
     "ALL_HANDLERS",
     "SessionLocal",
     "RedirectRepository",
+    "engine",
+    "Base",
     "UsageError",
     "_require_args",
     "_build_redirect_list_parts",
@@ -69,6 +71,9 @@ async def lifespan(app: FastAPI):
         BotCommand("reredirect", "Apuntar ruta fija a otro canal"),
         BotCommand("list", "Listar todas las rutas")
     ])
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
     await application.start()
     await application.updater.start_polling()
