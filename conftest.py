@@ -6,23 +6,24 @@ import tempfile
 _TEST_DIR = tempfile.mkdtemp(prefix="httpredirect_test_")
 _DB_PATH = os.path.join(_TEST_DIR, "test.db")
 
-os.environ["DATABASE_URL"] = f"sqlite:///{_DB_PATH}"
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_DB_PATH}"
 os.environ["TELEGRAM_TOKEN"] = "test-token"
 os.environ["ALLOWED_USER_ID"] = "12345"
 os.environ["URL_BASE_ACESTREAM"] = "http://acestream.local:6878/ace/getstream?id="
 os.environ["CHANNEL_LIST_URL"] = ""
 os.environ["REDIRECT_NAME"] = "f"
 
-from app.database import Base, engine, Redirect, SessionLocal  # noqa: E402
+from app.database import Base, engine, Redirect  # noqa: E402
+from sqlalchemy import delete  # noqa: E402
 
 import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _fresh_db():
-    """Limpia la tabla de redirecciones antes y después de cada test."""
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
+async def _fresh_db():
+    """Crea el esquema (idempotente) y limpia la tabla antes de cada test."""
+    async with engine.connect() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(delete(Redirect))
+        await conn.commit()
     yield
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
